@@ -1,0 +1,44 @@
+# Entorno virtual
+env/
+venv/
+.env
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configuración de IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de logs
+*.log
+
+# Archivos temporales
+*.tmp
+*.bak
+*.swp
+
+# Archivos de Django
+db.sqlite3
+media/
+staticfiles/
+
+# Migraciones viejas
+*/migrations/__pycache__/
+*/migrations/*.py
+
+# Dependencias
+*.egg-info/
+dist/
+build/
+
+# Archivos personales o de pruebas
+test_*.py
