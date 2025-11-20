@@ -47,17 +47,20 @@ class PagosPorVentaListAPIView(generics.ListAPIView):
 class EstadoCuentaClienteAPIView(APIView):
     """
     GET /api/v1/clientes/<cliente_id>/estado-cuenta/
-
-    Devuelve:
-    - Resumen de deuda
-    - Totales por bucket (aging)
-    - Listado de cuotas pendientes/vencidas
+    Opcional: ?solo_vencidas=1  → filtra solo cuotas vencidas (buckets != '0-AL-DIA')
     """
 
     def get(self, request, cliente_id: int):
         qs = VCarteraAging.objects.filter(cliente_id=cliente_id)
 
-        # Caso: cliente sin cuotas pendientes
+        # 🔹 Leer query param
+        solo_vencidas = request.query_params.get("solo_vencidas")
+
+        # 🔹 Si viene ?solo_vencidas=1 → filtramos a buckets vencidos
+        if solo_vencidas == "1":
+            qs = qs.exclude(bucket="0-AL-DIA")
+
+        # Caso: cliente sin cuotas que cumplan el filtro
         if not qs.exists():
             data = {
                 "cliente_id": cliente_id,
@@ -74,6 +77,9 @@ class EstadoCuentaClienteAPIView(APIView):
                     ">90": "0.00",
                 },
                 "cuotas": [],
+                "filtros": {
+                    "solo_vencidas": solo_vencidas == "1",
+                },
             }
             return Response(data)
 
@@ -116,6 +122,9 @@ class EstadoCuentaClienteAPIView(APIView):
                 ">90": str(buckets.get(">90", Decimal("0.00"))),
             },
             "cuotas": cuotas,
+            "filtros": {
+                "solo_vencidas": solo_vencidas == "1",
+            },
         }
 
         return Response(data)
