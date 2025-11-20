@@ -22,6 +22,14 @@ from core.views.catalog_views import (
     ProductoDetailView,
 )
 
+## pagos
+from core.views.payment_views import PagoCreateAPIView
+from core.views.payment_query_views import (
+    PagosPorClienteListAPIView,
+    PagosPorVentaListAPIView,
+    EstadoCuentaClienteAPIView,
+)
+
 
 urlpatterns = [
     path("ping", ping),  # GET /api/v1/ping → {"status":"ok"}
@@ -43,4 +51,23 @@ urlpatterns = [
     # CATÁLOGOS PRODUCTO
     path("catalogos/productos/", ProductoListView.as_view()),
     path("catalogos/productos/<int:pk>/", ProductoDetailView.as_view()),
+    ## pagos
+    path("pagos/", PagoCreateAPIView.as_view(), name="pago-create"),
+    ## consultar ventas y pagos de clientes
+    path(
+        "clientes/<int:cliente_id>/pagos/",
+        PagosPorClienteListAPIView.as_view(),
+        name="pagos-por-cliente",
+    ),
+    path(
+        "ventas/<int:venta_id>/pagos/",
+        PagosPorVentaListAPIView.as_view(),
+        name="pagos-por-venta",
+    ),
+    ## consultas estado de cuenta
+    path(
+        "clientes/<int:cliente_id>/estado-cuenta/",
+        EstadoCuentaClienteAPIView.as_view(),
+        name="estado-cuenta-cliente",
+    ),
 ]
