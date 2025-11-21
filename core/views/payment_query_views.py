@@ -128,3 +128,67 @@ class EstadoCuentaClienteAPIView(APIView):
         }
 
         return Response(data)
+
+
+class CarteraDashboardAPIView(APIView):
+    """
+    GET /api/v1/cartera/dashboard/
+
+    Resumen global de la cartera:
+    - Total deuda
+    - Total vencido
+    - Totales por bucket (aging)
+    - Top clientes con mayor deuda vencida
+    """
+
+    def get(self, request):
+        qs = VCarteraAging.objects.all()
+
+        total_deuda_global = Decimal("0.00")
+        total_vencida_global = Decimal("0.00")
+        buckets = defaultdict(lambda: Decimal("0.00"))
+        deuda_vencida_por_cliente = defaultdict(
+            lambda: {"cliente": "", "monto": Decimal("0.00")}
+        )
+
+        for row in qs:
+            total_deuda_global += row.saldo
+            buckets[row.bucket] += row.saldo
+
+            # Vencido = cualquier bucket distinto de 0-AL-DIA
+            if row.bucket in ("1-30", "31-60", "61-90", ">90"):
+                total_vencida_global += row.saldo
+                key = row.cliente_id
+                deuda_vencida_por_cliente[key]["cliente"] = row.cliente
+                deuda_vencida_por_cliente[key]["monto"] += row.saldo
+
+        # Calcular top morosos (ordenar por monto vencido desc, tomar top 5)
+        top_morosos = sorted(
+            [
+                {
+                    "cliente_id": cliente_id,
+                    "cliente": info["cliente"],
+                    "total_vencido": str(info["monto"]),
+                }
+                for cliente_id, info in deuda_vencida_por_cliente.items()
+            ],
+            key=lambda x: Decimal(x["total_vencido"]),
+            reverse=True,
+        )[:5]
+
+        data = {
+            "resumen_global": {
+                "total_deuda_global": str(total_deuda_global),
+                "total_vencida_global": str(total_vencida_global),
+            },
+            "aging_global": {
+                "0-AL-DIA": str(buckets.get("0-AL-DIA", Decimal("0.00"))),
+                "1-30": str(buckets.get("1-30", Decimal("0.00"))),
+                "31-60": str(buckets.get("31-60", Decimal("0.00"))),
+                "61-90": str(buckets.get("61-90", Decimal("0.00"))),
+                ">90": str(buckets.get(">90", Decimal("0.00"))),
+            },
+            "top_morosos": top_morosos,
+        }
+
+        return Response(data)

@@ -2,6 +2,8 @@ from django.urls import path
 from core.views.auth_views import CambiarPasswordView
 from core.views.auth_views import LoginView
 from core.views.health import ping
+from django.urls import include
+from rest_framework.routers import DefaultRouter
 
 from core.views.order_views import (
     PedidoCreateView,
@@ -28,10 +30,19 @@ from core.views.payment_query_views import (
     PagosPorClienteListAPIView,
     PagosPorVentaListAPIView,
     EstadoCuentaClienteAPIView,
+    CarteraDashboardAPIView,  # 👈 nuevo
 )
+
+## PurchaseView= vistas de compras
+from core.views.purchase_views import PurchaseViewSet, PurchasesBySupplierListView
+
+router = DefaultRouter()
+# ... otros registros
+router.register(r"compras", PurchaseViewSet, basename="compras")
 
 
 urlpatterns = [
+    path("", include(router.urls)),
     path("ping", ping),  # GET /api/v1/ping → {"status":"ok"}
     path("auth/login", LoginView.as_view()),
     path("auth/cambiar-password", CambiarPasswordView.as_view()),
@@ -69,5 +80,16 @@ urlpatterns = [
         "clientes/<int:cliente_id>/estado-cuenta/",
         EstadoCuentaClienteAPIView.as_view(),
         name="estado-cuenta-cliente",
+    ),
+    ## Dashbord
+    path(
+        "cartera/dashboard/",
+        CarteraDashboardAPIView.as_view(),
+        name="cartera-dashboard",
+    ),
+    ## proveedores
+    path(
+        "proveedores/<int:proveedor_id>/compras/",
+        PurchasesBySupplierListView.as_view(),
     ),
 ]

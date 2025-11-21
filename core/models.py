@@ -252,3 +252,111 @@ class VCarteraAging(models.Model):
         db_table = "v_cartera_aging"
         verbose_name = "Cartera Aging"
         verbose_name_plural = "Cartera Aging"
+
+
+## fase 4 modelos de compras
+class Proveedor(models.Model):
+    id = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=150)
+    nit = models.CharField(max_length=30, blank=True, null=True)
+    cui = models.CharField(max_length=20, blank=True, null=True)
+    direccion = models.CharField(max_length=255, blank=True, null=True)
+    telefono = models.CharField(max_length=30, blank=True, null=True)
+    email = models.CharField(max_length=120, blank=True, null=True)
+    estado = models.CharField(max_length=8)  # 'ACTIVO' / 'INACTIVO'
+
+    class Meta:
+        managed = False
+        db_table = "proveedor"
+        unique_together = (("nit",), ("cui",))
+
+    def __str__(self):
+        return self.nombre
+
+
+class Compra(models.Model):
+    id = models.AutoField(primary_key=True)
+    proveedor = models.ForeignKey("Proveedor", models.DO_NOTHING)
+    bodega = models.ForeignKey("Bodega", models.DO_NOTHING)
+    fecha = models.DateTimeField()
+    no_documento = models.CharField(max_length=60)
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+    usuario = models.ForeignKey("Usuario", models.DO_NOTHING)
+    estado = models.CharField(max_length=10)  # REGISTRADA / ANULADA / CERRADA
+    observaciones = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = "compra"
+        unique_together = (("proveedor", "no_documento"),)
+
+    def __str__(self):
+        return f"Compra #{self.id} - {self.no_documento}"
+
+
+class CompraDetalle(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    compra = models.ForeignKey("Compra", models.DO_NOTHING, related_name="detalles")
+    producto = models.ForeignKey("Producto", models.DO_NOTHING)
+    cantidad = models.DecimalField(max_digits=14, decimal_places=4)
+    costo_unit = models.DecimalField(max_digits=12, decimal_places=4)
+    subtotal = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        managed = False
+        db_table = "compra_detalle"
+
+
+class MovimientoInventario(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    fecha = models.DateTimeField()
+    tipo = models.CharField(max_length=8)  # COMPRA / AJUSTE / VENTA / TRASLADO
+    bodega_origen = models.ForeignKey(
+        "Bodega",
+        models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="movimientos_salida",
+    )
+    bodega_destino = models.ForeignKey(
+        "Bodega",
+        models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="movimientos_entrada",
+    )
+    producto = models.ForeignKey("Producto", models.DO_NOTHING)
+    cantidad = models.DecimalField(max_digits=14, decimal_places=4)
+    costo_unit = models.DecimalField(max_digits=12, decimal_places=4)
+    referencia = models.CharField(max_length=120, blank=True, null=True)
+    usuario = models.ForeignKey("Usuario", models.DO_NOTHING, blank=True, null=True)
+    compra = models.ForeignKey("Compra", models.DO_NOTHING, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = "movimientoinventario"
+
+
+class Existencia(models.Model):
+    # Para Django necesitamos un primary_key: usamos producto como PK lógico
+    producto = models.ForeignKey(
+        "Producto",
+        models.DO_NOTHING,
+        db_column="producto_id",
+        primary_key=True,
+    )
+    bodega = models.ForeignKey(
+        "Bodega",
+        models.DO_NOTHING,
+        db_column="bodega_id",
+    )
+    cantidad = models.DecimalField(max_digits=14, decimal_places=4)
+    reservado = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        managed = False
+        db_table = "existencia"
+        unique_together = (("producto", "bodega"),)
+
+    def __str__(self):
+        return f"{self.producto_id} @ {self.bodega_id} = {self.cantidad}"
