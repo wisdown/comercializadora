@@ -1,5 +1,6 @@
 # core/services/inventory_service.py
 from decimal import Decimal
+from django.utils import timezone
 from django.db import transaction, connection
 
 
@@ -86,11 +87,8 @@ class InventoryService:
         Registra:
         - MovimientoInventario tipo COMPRA (entrada a bodega_destino)
         - Actualiza tabla existencia (suma a cantidad)
-
-        Retorna el MovimientoInventario creado.
         """
 
-        # 1. Crear movimiento de inventario (kardex lógico)
         movimiento = MovimientoInventario.objects.create(
             fecha=compra.fecha,
             tipo="COMPRA",
@@ -104,8 +102,6 @@ class InventoryService:
             compra=compra,
         )
 
-        # 2. Actualizar existencias (tabla existencia)
-        #    get_or_create según combinación producto-bodega
         existencia, created = Existencia.objects.get_or_create(
             producto=producto,
             bodega=bodega,
@@ -121,3 +117,57 @@ class InventoryService:
         existencia.save(update_fields=["cantidad"])
 
         return movimiento
+
+    @staticmethod
+    @transaction.atomic
+    def revertir_compra(
+        *,
+        compra: Compra,
+        usuario: Usuario,
+    ):
+        """
+        Reversa total de la compra:
+        - Por cada movimiento de tipo COMPRA ligado a esta compra,
+          crea un movimiento inverso (tipo AJUSTE, salida de bodega_destino)
+        - Resta existencias en la tabla existencia.
+
+        Asume que NO se valida si habrá existencias negativas (eso puede agregarse después).
+        """
+
+        # Traer todos los movimientos de inventario asociados a la compra
+        movimientos = MovimientoInventario.objects.filter(compra=compra, tipo="COMPRA")
+
+        for mov in movimientos:
+            bodega = mov.bodega_destino
+            producto = mov.producto
+            cantidad = Decimal(mov.cantidad)
+
+            if bodega is None:
+                # Por seguridad, si no hay bodega_destino, lo saltamos
+                continue
+
+            # 1. Crear movimiento inverso (salida)
+            MovimientoInventario.objects.create(
+                fecha=timezone.now(),
+                tipo="AJUSTE",  # usamos AJUSTE como reversa de COMPRA
+                bodega_origen=bodega,
+                bodega_destino=None,
+                producto=producto,
+                cantidad=cantidad * Decimal("-1"),  # cantidad negativa
+                costo_unit=mov.costo_unit,
+                referencia=f"ANULACION COMPRA #{compra.id} DOC: {compra.no_documento}",
+                usuario=usuario,
+                compra=compra,
+            )
+
+            # 2. Actualizar existencias (restar la cantidad)
+            try:
+                existencia = Existencia.objects.get(producto=producto, bodega=bodega)
+            except Existencia.DoesNotExist:
+                # Si no existe registro de existencia, no hay nada que restar
+                continue
+
+            existencia.cantidad = (Decimal(existencia.cantidad) - cantidad).quantize(
+                Decimal("0.0001")
+            )
+            existencia.save(update_fields=["cantidad"])

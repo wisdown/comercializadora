@@ -26,13 +26,10 @@ class PurchaseService:
     @transaction.atomic
     def registrar_compra(data: dict, usuario) -> Compra:
         """
-        data viene validado por PurchaseCreateSerializer.
-
-        'usuario' aquí será normalmente request.user (User de Django).
-        Dentro del servicio buscamos el UsuarioCore (tabla 'usuario').
+        Crea una compra nueva con detalles y movimientos de inventario.
         """
 
-        # 1. Resolver usuario core (tabla `usuario`)
+        # Resolver usuario core (tabla `usuario`)
         if isinstance(usuario, UsuarioCore):
             usuario_core = usuario
         else:
@@ -45,7 +42,7 @@ class PurchaseService:
         no_documento = data["no_documento"].strip()
         observaciones = (data.get("observaciones") or "").strip()
 
-        # 2. Validación previa: evitar duplicados (proveedor + no_documento)
+        # Validación previa: evitar duplicados (proveedor + no_documento)
         if Compra.objects.filter(
             proveedor=proveedor, no_documento=no_documento
         ).exists():
@@ -58,7 +55,7 @@ class PurchaseService:
                 }
             )
 
-        # 3. Crear cabecera de compra (con try/except como red de seguridad)
+        # Crear cabecera de compra
         try:
             compra = Compra.objects.create(
                 proveedor=proveedor,
@@ -71,7 +68,6 @@ class PurchaseService:
                 observaciones=observaciones,
             )
         except IntegrityError as e:
-            # Si por alguna condición de carrera se cuela el duplicado, lo atrapamos aquí
             raise ValidationError(
                 {
                     "no_documento": [
@@ -83,7 +79,7 @@ class PurchaseService:
 
         total_compra = Decimal("0.00")
 
-        # 4. Crear detalles + movimientos de inventario
+        # Crear detalles + movimientos de inventario
         for item in data["items"]:
             producto_id = item["producto_id"]
             try:
@@ -107,7 +103,6 @@ class PurchaseService:
 
             total_compra += subtotal
 
-            # Movimiento de inventario + actualización de existencias
             InventoryService.registrar_entrada_compra(
                 compra=compra,
                 producto=producto,
@@ -117,8 +112,59 @@ class PurchaseService:
                 usuario=usuario_core,
             )
 
-        # 5. Actualizar total en la compra
+        # Actualizar total en la compra
         compra.total = total_compra
         compra.save(update_fields=["total"])
+
+        return compra
+
+    @staticmethod
+    @transaction.atomic
+    def anular_compra(compra_id: int, usuario, motivo: str | None = None) -> Compra:
+        """
+        Anula una compra:
+        - Cambia estado a ANULADA
+        - Genera movimientos inversos en inventario
+        - Actualiza existencias
+        - Opcional: agrega motivo en observaciones
+        """
+
+        # Resolver usuario core
+        if isinstance(usuario, UsuarioCore):
+            usuario_core = usuario
+        else:
+            usuario_core = UsuarioCore.objects.get(username=usuario.username)
+
+        try:
+            compra = Compra.objects.select_for_update().get(pk=compra_id)
+        except Compra.DoesNotExist:
+            raise ValidationError(
+                {"detail": f"La compra con id {compra_id} no existe."}
+            )
+
+        # Validaciones de estado
+        if compra.estado == "ANULADA":
+            raise ValidationError({"detail": "La compra ya se encuentra ANULADA."})
+
+        # Aquí puedes agregar más reglas, por ejemplo:
+        # if compra.estado not in ('REGISTRADA',):
+        #     raise ValidationError({"detail": f"No se puede anular una compra en estado {compra.estado}."})
+
+        # Revertir inventario
+        InventoryService.revertir_compra(compra=compra, usuario=usuario_core)
+
+        # Marcar como ANULADA y registrar motivo en observaciones (sin tocar DDL)
+        motivo = (motivo or "").strip()
+        if motivo:
+            nuevo_texto = (compra.observaciones or "").strip()
+            if nuevo_texto:
+                nuevo_texto += " | "
+            nuevo_texto += (
+                f"ANULADA ({timezone.now().strftime('%Y-%m-%d %H:%M')}): {motivo}"
+            )
+            compra.observaciones = nuevo_texto
+
+        compra.estado = "ANULADA"
+        compra.save(update_fields=["estado", "observaciones"])
 
         return compra
