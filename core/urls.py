@@ -23,6 +23,12 @@ from core.views.catalog_views import (
     ProductoDetailView,
 )
 
+## Provider
+from core.views.provider_views import (
+    ProveedorListCreateAPIView,
+    ProveedorDetailAPIView,
+)
+
 ## pagos
 from core.views.payment_views import PagoCreateAPIView
 from core.views.payment_query_views import (
@@ -105,4 +111,7 @@ urlpatterns = [
         "proveedores/<int:proveedor_id>/compras/",
         PurchasesBySupplierListView.as_view(),
     ),
+    # CATÁLOGOS PROVEEDORES
+    path("catalogos/proveedores/", ProveedorListCreateAPIView.as_view()),
+    path("catalogos/proveedores/<int:pk>/", ProveedorDetailAPIView.as_view()),
 ]
