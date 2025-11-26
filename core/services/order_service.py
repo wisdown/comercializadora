@@ -253,12 +253,16 @@ def reemplazar_items_pedido(pedido_id: int, items: list, username: str):
 def confirmar_pedido(pedido_id: int, username: str):
     """
     Confirma (factura) un pedido:
-    - Verifica que esté en estado PENDIENTE.
+    - Verifica que esté en estado ABIERTO.
     - Verifica existencia nuevamente.
     - Descuenta de `existencia.cantidad`.
+    - Registra movimiento en `movimientoinventario` (SALIDA/VENTA).
     - Cambia estado a 'FACTURADO'.
     (Por ahora NO crea registro en tabla venta; se puede agregar después.)
     """
+    # NUEVO: obtener el usuario de negocio que confirma
+    usuario_id = _get_usuario_id(username)
+
     with connection.cursor() as cur:
         # Leer pedido con lock
         cur.execute(
@@ -273,12 +277,12 @@ def confirmar_pedido(pedido_id: int, username: str):
         row = cur.fetchone()
         if not row:
             raise PedidoError("Pedido no existe.")
-        _id, total, cliente_id, usuario_id, bodega_id, estado = row
+        _id, total, cliente_id, usuario_creador_id, bodega_id, estado = row
 
         if estado != "ABIERTO":
             raise PedidoError("Solo pedidos en estado ABIERTO pueden confirmarse.")
 
-        # Leer detalle
+        # Leer detalle (producto y cantidad)
         cur.execute(
             """
             SELECT producto_id, cantidad
@@ -289,10 +293,11 @@ def confirmar_pedido(pedido_id: int, username: str):
         )
         items = cur.fetchall()
 
-        # Validar existencia y descontar
+        # Validar existencia, descontar y registrar movimiento
         for pid, qty in items:
             qty = Decimal(str(qty))
 
+            # Bloqueo de la fila de existencia
             cur.execute(
                 """
                 SELECT cantidad
@@ -313,6 +318,7 @@ def confirmar_pedido(pedido_id: int, username: str):
                     f"Producto {pid}: existencia {cantidad}, requerido {qty}."
                 )
 
+            # Actualizar existencia (restar)
             cur.execute(
                 """
                 UPDATE existencia
@@ -320,6 +326,48 @@ def confirmar_pedido(pedido_id: int, username: str):
                 WHERE producto_id = %s AND bodega_id = %s
                 """,
                 [qty, pid, bodega_id],
+            )
+
+            # NUEVO: registrar movimiento de inventario tipo VENTA/SALIDA
+            # Nota: ajusta nombres de columnas si tu DDL tiene venta_id u otros campos.
+            cur.execute(
+                """
+                INSERT INTO movimientoinventario (
+                    fecha,
+                    tipo,
+                    bodega_origen_id,
+                    bodega_destino_id,
+                    producto_id,
+                    cantidad,
+                    costo_unit,
+                    referencia,
+                    usuario_id,
+                    compra_id
+                ) VALUES (
+                    %s,      -- fecha
+                    %s,      -- tipo
+                    %s,      -- bodega_origen_id
+                    %s,      -- bodega_destino_id
+                    %s,      -- producto_id
+                    %s,      -- cantidad
+                    %s,      -- costo_unit
+                    %s,      -- referencia
+                    %s,      -- usuario_id
+                    %s       -- compra_id (NULL en ventas)
+                )
+                """,
+                [
+                    timezone.now(),  # fecha
+                    "VENTA",  # tipo (ajusta si usas 'SALIDA')
+                    bodega_id,  # bodega_origen_id
+                    None,  # bodega_destino_id
+                    pid,  # producto_id
+                    qty,  # cantidad
+                    Decimal("0.00"),  # costo_unit (placeholder, se puede mejorar)
+                    f"VENTA PEDIDO #{pedido_id}",  # referencia
+                    usuario_id,  # usuario que confirmó
+                    None,  # compra_id = NULL en ventas
+                ],
             )
 
         # Cambiar estado del pedido

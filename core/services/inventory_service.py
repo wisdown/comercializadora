@@ -11,6 +11,7 @@ from core.models import (
     Producto,
     Compra,
     Usuario,
+    Venta,
 )
 
 
@@ -72,6 +73,7 @@ class InventoryService:
     Servicio centralizado para manejar movimientos de inventario y existencias.
     """
 
+    ## registrar_entrada_compra
     @staticmethod
     @transaction.atomic
     def registrar_entrada_compra(
@@ -118,6 +120,7 @@ class InventoryService:
 
         return movimiento
 
+    ## revertir_compra
     @staticmethod
     @transaction.atomic
     def revertir_compra(
@@ -171,3 +174,108 @@ class InventoryService:
                 Decimal("0.0001")
             )
             existencia.save(update_fields=["cantidad"])
+
+    ## registrar_salida_venta
+    @staticmethod
+    @transaction.atomic
+    def registrar_salida_venta(
+        *,
+        venta: Venta,
+        producto: Producto,
+        bodega: Bodega,
+        cantidad: Decimal,
+        costo_unit: Decimal,
+        usuario: Usuario,
+    ) -> MovimientoInventario:
+        """Registra una SALIDA de inventario por VENTA.
+
+        - Crea un MovimientoInventario tipo VENTA/SALIDA.
+        - Resta la cantidad de Existencia.
+        - Opcional: validar stock suficiente.
+        """
+
+        # 1) Obtener o crear existencia
+        existencia, _ = Existencia.objects.select_for_update().get_or_create(
+            producto=producto,
+            bodega=bodega,
+            defaults={"cantidad": Decimal("0")},
+        )
+
+        if existencia.cantidad < cantidad:
+            # Aquí podrías lanzar una excepción personalizada
+            # o manejarlo según la política de negocio.
+            raise ValueError(
+                f"Stock insuficiente para el producto {producto.id} en bodega {bodega.id}. "
+                f"Disponible: {existencia.cantidad}, requerido: {cantidad}"
+            )
+
+        cantidad_antes = existencia.cantidad
+        cantidad_despues = cantidad_antes - cantidad
+
+        # 2) Actualizar existencia (restar)
+        existencia.cantidad = cantidad_despues
+        existencia.save()
+
+        # 3) Crear movimiento de inventario
+        movimiento = MovimientoInventario.objects.create(
+            fecha=venta.fecha if hasattr(venta, "fecha") else timezone.now(),
+            tipo="VENTA",  # o "SALIDA", según tu DDL
+            bodega_origen=bodega,
+            bodega_destino=None,
+            producto=producto,
+            cantidad=cantidad,
+            costo_unit=costo_unit,
+            referencia=f"VENTA #{venta.id}",
+            usuario=usuario,
+            venta=venta,  # si el modelo tiene FK venta_id; si no, quitar este campo
+            existencia_antes=cantidad_antes,
+            existencia_despues=cantidad_despues,
+        )
+
+        return movimiento
+
+    ##reversar_salida_venta
+    @staticmethod
+    @transaction.atomic
+    def reversar_salida_venta(
+        *,
+        venta: Venta,
+        producto: Producto,
+        bodega: Bodega,
+        cantidad: Decimal,
+        usuario: Usuario,
+    ) -> MovimientoInventario:
+        """Reversa una salida de inventario por VENTA (por ejemplo, al anular una venta).
+
+        - Suma nuevamente la cantidad a Existencia.
+        - Crea un MovimientoInventario de tipo AJUSTE/ANULACION.
+        """
+
+        existencia, _ = Existencia.objects.select_for_update().get_or_create(
+            producto=producto,
+            bodega=bodega,
+            defaults={"cantidad": Decimal("0")},
+        )
+
+        cantidad_antes = existencia.cantidad
+        cantidad_despues = cantidad_antes + cantidad
+
+        existencia.cantidad = cantidad_despues
+        existencia.save()
+
+        movimiento = MovimientoInventario.objects.create(
+            fecha=timezone.now(),
+            tipo="AJUSTE",  # o "ANULACION_VENTA" si manejas códigos específicos
+            bodega_origen=None,
+            bodega_destino=bodega,
+            producto=producto,
+            cantidad=cantidad,
+            costo_unit=Decimal("0"),  # o el costo que definas según tu política
+            referencia=f"REVERSA VENTA #{venta.id}",
+            usuario=usuario,
+            venta=venta,
+            existencia_antes=cantidad_antes,
+            existencia_despues=cantidad_despues,
+        )
+
+        return movimiento

@@ -108,6 +108,7 @@ class PedidoConfirmarView(APIView):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+## PedidoCancelarView
 class PedidoCancelarView(APIView):
     permission_classes = [IsAuthenticated]
 
