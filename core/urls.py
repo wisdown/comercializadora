@@ -38,6 +38,14 @@ from core.views.payment_query_views import (
     CarteraDashboardAPIView,  # 👈 nuevo
 )
 
+
+## agragado el 27-11-25
+from core.views.inventory_query_views import (
+    InventarioActualListAPIView,
+    KardexProductoListAPIView,
+)
+
+
 ## PurchaseView= vistas de compras
 """Dashboard de Compras"""
 from core.views.purchase_dashboard_views import PurchaseDashboardAPIView
@@ -114,4 +122,8 @@ urlpatterns = [
     # CATÁLOGOS PROVEEDORES
     path("catalogos/proveedores/", ProveedorListCreateAPIView.as_view()),
     path("catalogos/proveedores/<int:pk>/", ProveedorDetailAPIView.as_view()),
+    # INVENTARIO ACTUAL 27-11-25
+    path("inventario/", InventarioActualListAPIView.as_view()),
+    # KARDEX POR PRODUCTO
+    path("inventario/<int:producto_id>/kardex/", KardexProductoListAPIView.as_view()),
 ]
